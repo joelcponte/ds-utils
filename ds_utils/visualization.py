@@ -12,8 +12,9 @@ from IPython.core.display import display, HTML
 
 
 def print_categorical_frequencies(df):
+    df = df.copy()
     for y in df.columns:
-        if not (df[y].dtype == np.float64 or df[y].dtype == np.int64):
+        if df[y].dtype == "object" or (df[y].dtype.name == "category"):
             display(HTML(f"<h2> {y}"))
             display(df[y].value_counts())
             print("\n")
@@ -127,35 +128,43 @@ def sns_bivariate_plot(
     df: pd.DataFrame,
     x: str,
     y: str,
-    min_freq: int = 30,
-    max_categories: int = 10,
-    ascending: bool = False,
-    agg_fun: str = "median",
-    sort: str = "categorical",  # yes, no
     target_type: str = "numeric",  # or binary
+    min_freq: int = 10,
+    max_categories: int = 30,
+    ascending: bool = False,
+    agg_fun: str = "mean",
+    sort: str = "categorical",  # yes, no
     qcut: bool = True,
-    cut_nbins: int = 10,
+    cut_nbins: int = 20,
+    datetime_floor: str = "D",
 ):
     df = df.copy()
 
     if (
         pd.api.types.is_numeric_dtype(df[x])
-        and df[x].value_counts().shape[0] > df.shape[0] / 3
-    ):
+        and df[x].value_counts().shape[0] > cut_nbins
+    ) or pd.api.types.is_datetime64_any_dtype(df[x]):
+        istime = pd.api.types.is_datetime64_any_dtype(df[x])
         if qcut:
             df[x] = pd.qcut(df[x], q=cut_nbins)
         else:
             df[x] = pd.cut(df[x], bins=cut_nbins)
+
+        if istime and datetime_floor:
+            df[x] = df[x].apply(lambda x: x.left.floor(datetime_floor))
+
     else:
-        valid_values = (
-            df[x].value_counts().loc[lambda x: x > min_freq].head(max_categories).index
-        )
+        valid_values = df[x].value_counts().loc[lambda x: x > min_freq].index
         df = df.loc[df[x].isin(valid_values), [x, y]]
         if sort == "yes" or (
             sort == "categorical" and not pd.api.types.is_numeric_dtype(df[x])
         ):
             sorting = (
-                df.groupby(x)[y].agg(agg_fun).sort_values(ascending=ascending).index
+                df.groupby(x)[y]
+                .agg(agg_fun)
+                .sort_values(ascending=ascending)
+                .head(max_categories)
+                .index
             )
             df[x] = pd.Categorical(df[x], categories=sorting)
 
@@ -167,14 +176,15 @@ def sns_bivariate_plot(
     fig, axes = plt.subplots(
         2, 1, sharex=True, figsize=(7, 5), gridspec_kw={"height_ratios": [1, 4]}
     )
-    sns.countplot(ax=axes[0], data=df, x=x, color="#5F9E6E").set(title=x)
-    axes[1].tick_params(axis="x", rotation=30)
+    sns.countplot(ax=axes[0], data=df, x=x, color="#42B3A2").set(title=x)
+    axes[1].tick_params(axis="x", rotation=60)
     if target_type == "numeric":
-        sns.boxplot(ax=axes[1], data=df, x=x, y=y, color="#5F9E6E")
+        sns.boxplot(ax=axes[1], data=df, x=x, y=y, color="#E8A87C")
     elif target_type == "binary":
         df = df.groupby(x)[y].mean().reset_index()
-        sns.barplot(ax=axes[1], data=df, x=x, y=y, color="#5F9E6E")
+        sns.barplot(ax=axes[1], data=df, x=x, y=y, color="#E8A87C")
         axes[1].set_ylim(0, 1)
+    axes[1].set_xticklabels(axes[1].get_xticklabels(), ha="right")
 
 
 def gg_boxplot_bar_combined(
